@@ -1,0 +1,21 @@
+{
+  "_comment": "可选的布局配置文件。把此文件命名为 <模板名>.json 放在同目录，转换时自动读取。",
+  "slide_w": 11.42,
+  "slide_h": 6.42,
+  "title_l": 0.473,
+  "title_t": 0.202,
+  "title_w": 9.482,
+  "title_h": 0.637,
+  "content_l": 0.473,
+  "content_t": 1.354,
+  "content_w": 10.662,
+  "content_h": 3.466,
+  "slide_num_l": 8.672,
+  "slide_num_t": 5.951,
+  "slide_num_w": 2.665,
+  "slide_num_h": 0.342,
+  "copy_deco": true,
+  "font_main": "Microsoft YaHei",
+  "title_color": "00B0F0",
+  "h3_color": "005A87"
+}
