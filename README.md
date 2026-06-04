@@ -1,4 +1,4 @@
-# MD2PPTX
+# LANCER1911 MD2PPTX
 
 将结构化 Markdown 转换为 PowerPoint (`.pptx`) 的本地工具。  
 本项目适合将法律分析、技术说明、项目方案、培训材料、会议汇报等内容快速整理为可编辑的 PPT。
@@ -593,4 +593,4 @@ Markdown 中不需要单独写感谢页。
 
 ## License
 
-请根据项目实际情况补充 License。
+MIT
