@@ -1,401 +1,309 @@
-# Prompt：将现有演示文稿转换为 MD2PPTX 可处理的 Markdown 格式
+# Instruction: Convert an Existing Presentation into MD2PPTX Markdown
 
-你是一位专业的演示文稿编辑助手。我将向你提供一份现有演示文稿的内容（可能是文字提取、截图描述、或直接粘贴的文本），请将其转换为 MD2PPTX 转换器能够处理的标准 Markdown 格式。
+Convert the supplied PPTX or PDF presentation into Markdown for the local `md_to_pptx.py` tool.
 
----
-
-## 一、你的核心任务
-
-将原始演示文稿的**内容和逻辑结构**忠实转换为 Markdown，同时：
-
-1. **保留原始信息**：所有标题、要点、表格、数据、结论一条不漏
-2. **丢弃视觉装饰**：颜色、字体、动画、图标、SmartArt、背景图等无法转换的元素不用描述
-3. **规范化结构**：将花哨布局（多列、时间轴、流程图等）转为线性 Markdown 内容
-4. **控制密度**：每页不超过容量上限，内容过多时主动拆分
+The goal is not pixel-perfect reproduction. The goal is to preserve the presentation's logical structure, wording, numbers, legal conclusions, tables, images, diagrams, and reusable slide sequence in Markdown that can be regenerated as PPTX.
 
 ---
 
-## 二、幻灯片结构规则
+## 1. Required slide structure
 
-### 1. 每张幻灯片的分隔
+- Use `#` only for the cover slide title.
+- Use the next plain line after `#` for `Speaker | year` when the source has such information.
+- Use `##` for every normal slide title.
+- Separate slides with `---`.
+- Preserve the original slide order unless the source is clearly disordered.
+- If a dense slide must be split, keep the original title for the first split slide and use a clear suffix for later slides, such as `(continued)`, `Part 2`, or a meaningful subtopic.
 
-用单独一行 `---` 分隔每张幻灯片，前后各留一个空行：
+Example:
 
 ```markdown
-## 第一页标题
-
-- 内容。
+# Presentation Title
+Speaker | 2026
 
 ---
 
-## 第二页标题
+## First Content Slide
 
-- 内容。
-```
-
-### 2. 幻灯片标题
-
-每张幻灯片第一行为 `##` 标题：
-
-```markdown
-## 项目目标与整体策略
-```
-
-- 标题控制在 **30 字以内**
-- 原稿标题过长时，提炼核心意思缩短
-- 如原稿有编号（"第三章"、"Slide 5"），直接去掉，只保留标题文字
-
-### 3. 封面页
-
-用 `#` 标题表示封面。如需显示演讲人和年份，在 `#` 行**紧下一行**（中间不留空行）写：
-
-```markdown
-# 公司A产品X专利侵权诉讼项目工作方案
-张律师 | 2025
-```
-
-- `#` 只能出现一次，必须在文件最开头
-- 紧跟的副行格式为 `演讲人 | 年份`，`|` 两侧为模板的青色高亮，`|` 本身为白色
-- 封面副行**不支持**多行或换行，建议控制在 **20 个字符以内**（含空格）
-- 超出字符限制可能导致折行，请精简或缩写
-- 封面正文区（如项目说明、副标题）在模板封面上**不渲染**，如需展示应移至第一张内容页
-
-### 4. 页内小标题
-
-用 `###` 表示页内分节标题（深蓝色加粗显示）：
-
-```markdown
-### 三条主线
-```
-
-- 小标题控制在 **20 字以内**
-- 更深层级（####、#####）也支持，但视觉层级递减，不建议超过三级
+- Key point.
 
 ---
 
-## 三、正文内容转换规则
+## First Content Slide (continued)
 
-### 1. 要点列表（最常见）
-
-原稿中的 bullet points、编号列表、SmartArt 要点，统一转为无序列表：
-
-```markdown
-- 通过民事诉讼与行政维权推动认定产品X侵权。
-- 促使公司A停止侵权并承担赔偿责任。
-- 为高额赔偿构建完整证据链。
+- Remaining key point.
 ```
-
-**转换原则：**
-- 每条要点是**一句完整的话**，以句号结尾
-- 原稿要点过短（只有词语）时，补充为完整句子
-- 原稿要点过长（超过60字）时，提炼为核心句
-- 保留所有具体数字、专业术语、案例名称
-
-### 2. 二级要点（缩进子项）
-
-支持一级缩进，用两个空格加 `-` 表示：
-
-```markdown
-- 第一步：完成诉前证据评估。
-  - 对三件专利分别进行稳定性检索。
-  - 评估被告可能的无效宣告策略。
-- 第二步：固定被诉产品样品。
-```
-
-**注意：不建议超过两级缩进。** 三级及以上嵌套应拆分为独立小节或独立幻灯片。
-
-### 3. 有序列表（步骤、流程）
-
-原稿中有明确顺序的内容（步骤、阶段、流程），使用有序列表：
-
-```markdown
-1. 完成诉前评估与证据设计。
-2. 通过公证购买固定被诉产品样品。
-3. 委托司法鉴定机构完成参数检测。
-4. 向合适法院提起民事诉讼。
-```
-
-### 4. 普通段落
-
-封面说明、背景说明、过渡页说明，可以写普通段落（不加 `-`）：
-
-```markdown
-本项目并非单一诉讼，而是围绕公司A产品X展开的系列维权行动，
-核心目标是构建可被法院采信的完整证据体系。
-```
-
-- 段落控制在 **80 字以内**
-- 一页不宜放超过两个段落
-
-### 5. 引用块（强调语、结论句）
-
-原稿中的强调框、结论性总结句，可用引用块：
-
-```markdown
-> 诉讼的真正目标不是赢得判决，而是获得可执行的商业解决方案。
-```
-
-- 渲染为左侧灰色竖线 + 缩进文字，适合结论句或需要强调的判断
-- 建议每页不超过 **2 个**引用块；适合放在节末或页面末尾
-- 每个引用块占用约 1–2 条要点的纵向空间，规划容量时需计入
 
 ---
 
-## 四、表格转换规则
+## 2. Supported Markdown elements
 
-原稿中的表格（包括 SmartArt 对比图、矩阵图）转为标准 GFM 管道表格：
+Use only the following Markdown elements unless necessary:
+
+- `###` to `######` for section headings.
+- Plain paragraphs for short explanations.
+- `-` for bullets, with at most two levels where possible.
+- Numbered lists only where sequence matters.
+- Markdown pipe tables for real tables.
+- `>` for conclusions, case holdings, or emphasized quotations.
+- Fenced code blocks for code, commands, or configuration examples.
+- `![alt](relative/path.png)` for images or screenshots that should be inserted later.
+- `> **Speaker note:** ...` for speaker-only notes.
+- `:::smartart` blocks for editable pseudo-SmartArt diagrams.
+
+Do not use HTML, repeated blank lines, manual spacing, Mermaid, footnotes, or fake indentation to reproduce visual positions.
+
+---
+
+## 3. Fidelity rules
+
+- Do not shorten legal conclusions, technical limitations, numerical figures, names, dates, case names, statute names, patent numbers, claim language, or party names.
+- Preserve all numbers, percentages, amounts, time periods, docket numbers, patent numbers, dates, and citations.
+- Preserve all tables as tables whenever possible.
+- Preserve every readable label inside a diagram or shape.
+- If a slide is too dense, split it into multiple `##` slides rather than reducing substance.
+- Keep wording concise, but do not lose material legal, factual, technical, or procedural distinctions.
+- Do not include recurring template elements such as page numbers, logos, confidentiality footers, decorative lines, or background text unless they are substantive content unique to that slide.
+
+---
+
+## 4. Common slide elements
+
+### 4.1 Paragraphs and bullets
+
+- Convert normal body text into short paragraphs or bullets.
+- Use bullets when the source slide contains bullet-like statements or separated text boxes.
+- Do not merge separate legal or technical points merely to save space.
+
+### 4.2 Quotes and emphasized conclusions
+
+Use block quotes for visually emphasized conclusions, court holdings, or key warnings:
 
 ```markdown
-| 风险类型 | 具体风险 | 应对措施 |
+> Key conclusion or holding from the source slide.
+```
+
+If multiple quote lines form one visual block in the source, keep them as consecutive `>` lines.
+
+### 4.3 Code, command, or configuration text
+
+Use fenced code blocks:
+
+````markdown
+```bash
+python md_to_pptx.py input.md template.pptx output.pptx
+```
+````
+
+---
+
+## 5. SmartArt / diagram conversion
+
+When a slide contains a visual diagram made of boxes, arrows, circles, hierarchy nodes, timeline markers, or matrix quadrants, convert it into `:::smartart` whenever possible.
+
+Use:
+
+- `type="process"` for linear steps, arrows, or stage flows.
+- `type="cycle"` for circular, iterative, or repeated-loop diagrams.
+- `type="hierarchy"` for organization charts, team structures, tree structures, or parent-child relationships.
+- `type="matrix"` for 2×2 or 2×3 quadrant charts.
+- `type="pyramid"` for priority layers, value tiers, or progressive levels.
+- `type="timeline"` for dated, staged, or milestone-based horizontal timelines.
+
+Preserve the text in each shape exactly. Do not omit node labels merely because they are visually small.
+
+### 5.1 Process
+
+```markdown
+:::smartart type="process" style="chevron" theme="blue"
+- Evidence Collection
+- Claim Mapping
+- Complaint Filing
+- Hearing
+- Decision
+:::
+```
+
+For vertical step lists or numbered cards:
+
+```markdown
+:::smartart type="process" style="numbered" theme="cyan"
+- Complete pre-suit assessment
+- Preserve samples and webpages
+- File complaint and evidence list
+:::
+```
+
+### 5.2 Cycle
+
+```markdown
+:::smartart type="cycle" theme="blue"
+- Monitor
+- Analyze
+- Act
+- Track
+- Review
+:::
+```
+
+### 5.3 Hierarchy
+
+Use two spaces for each indentation level. Do not mix tabs and spaces.
+
+```markdown
+:::smartart type="hierarchy" theme="blue"
+- Project Team
+  - Litigation Team
+    - Complaint Drafting
+    - Hearing Preparation
+  - Invalidity Team
+    - Prior Art Search
+    - Invalidity Petition
+:::
+```
+
+### 5.4 Matrix
+
+```markdown
+:::smartart type="matrix" size="2x2" theme="cyan"
+- High Impact / Low Probability / Watch Closely
+- High Impact / High Probability / Act Immediately
+- Low Impact / Low Probability / Monitor
+- Low Impact / High Probability / Manage
+:::
+```
+
+### 5.5 Pyramid
+
+```markdown
+:::smartart type="pyramid" theme="purple"
+- Immediate Action
+- Prepare
+- Monitor
+- Archive
+:::
+```
+
+### 5.6 Timeline
+
+```markdown
+:::smartart type="timeline" theme="blue"
+- Week 1 | Evidence Preservation
+- Week 3 | Complaint Filed
+- Month 2 | Invalidity Request
+- Month 4 | Hearing
+:::
+```
+
+Use `Label | Description` for each milestone.
+
+### 5.7 When not to convert a diagram into SmartArt
+
+If a diagram is too complex to convert reliably into `:::smartart`, use an image placeholder:
+
+```markdown
+![Original diagram: short description](images/slide-XX-diagram.png)
+```
+
+Then add bullets below only if the source slide itself contains readable text outside the image.
+
+---
+
+## 6. Table conversion rules
+
+- Convert real tables into Markdown pipe tables.
+- Preserve row headers and column headers.
+- Do not merge cells using HTML.
+- If the source table has merged cells, repeat the merged heading text in each relevant column or row.
+- If a table is too large for one slide, split it into multiple slides and repeat the header row.
+- Do not convert tables into screenshots unless the table is purely visual or impossible to read reliably.
+
+Example:
+
+```markdown
+| Stage | Work | Output |
 | --- | --- | --- |
-| 方法专利举证风险 | 难以直接适用举证责任倒置 | 推动法院要求被告说明制造方法 |
-| 参数鉴定风险 | 单方鉴定可能被质疑 | 强化检材来源和检测方法 |
-```
-
-**表格规则：**
-- 必须包含表头行 + 分隔行（`| --- |`）+ 数据行
-- 建议每张表 **不超过 5 列、8 行**
-- 单元格内容控制在 **40 字以内**
-- 单元格内不支持换行，长内容直接截断或合并
-- **表格页通常不再放大量要点**，一页一表为佳
-
----
-
-## 五、图片和图表处理
-
-转换器支持**本地图片路径**（相对于 Markdown 文件目录），**不支持远程 URL**。遇到图片、图表、流程图时：
-
-### 处理方式 A：提取文字内容
-
-如果图表本质上是文字信息（流程图、组织架构图、对比图），提取其中的文字转为列表或表格：
-
-**原稿：** 三步骤流程图（箭头连接三个方框）
-```markdown
-### 三步执行流程
-
-1. 第一步：诉前证据工程——完成公证购买、样品封存、初步检测。
-2. 第二步：启动程序——民事起诉 + 行政投诉 + 证据保全同步推进。
-3. 第三步：庭审与执行——推进鉴定、赔偿举证、判决执行。
-```
-
-### 处理方式 B：占位说明
-
-如果图片是照片、真实图像、品牌素材，无法用文字替代，写占位说明：
-
-```markdown
-![季度销售趋势折线图](chart_q1_sales.png)
-```
-
-- 文件名填写一个描述性名称，即便图片不存在也会显示为占位提示
-
-### 处理方式 C：数据表格化
-
-如果图表是数据图（柱状图、饼图），把数据提取为表格：
-
-**原稿：** 柱状图，显示三家公司市场份额
-```markdown
-| 公司 | 市场份额 | 同比变化 |
-| --- | --- | --- |
-| 公司A | 42% | +5% |
-| 公司B | 31% | -2% |
-| 公司C | 27% | +1% |
+| Assessment | Claim mapping and target confirmation | Initial memo |
+| Evidence | Sample purchase and webpage notarization | Notarial certificate |
 ```
 
 ---
 
-## 六、特殊布局的转换方法
+## 7. Images and screenshots
 
-### 1. 多列布局
+Use local image placeholders for images that should be inserted later:
 
-原稿有左右两栏、三栏布局时，**按逻辑顺序**改为线性内容，必要时用小标题分节：
-
-**原稿：** 左栏"优势"，右栏"挑战"
 ```markdown
-### 优势
-
-- 技术方案具有明显创新性，现有技术检索未见相同方案。
-- 被告销售规模大，赔偿证据较易获取。
-
-### 挑战
-
-- 目标产品可能不属于新产品，难以适用举证责任倒置。
-- 参数特征需要专业鉴定，存在两次鉴定风险。
+![Product comparison image](images/slide-05-product-comparison.png)
 ```
 
-### 2. 时间轴 / 路线图
+- Use meaningful alt text.
+- Preserve captions if the source slide has captions.
+- Do not describe a screenshot in excessive prose if an image placeholder is more faithful.
+- If the image contains important readable labels, include those labels in bullets or SmartArt when possible.
 
-转为有序列表，在要点中说明时间节点：
+---
+
+## 8. Speaker notes
+
+If the source presentation includes speaker notes, convert them into `> **Speaker note:** ...` at the end of the corresponding slide.
 
 ```markdown
-### 分阶段行动计划
-
-1. **第一阶段（第1-2周）**：完成专利稳定性评估和侵权初步比对。
-2. **第二阶段（第3-4周）**：公证购买样品，委托鉴定机构完成参数检测。
-3. **第三阶段（第5-8周）**：提起民事诉讼，同步申请证据保全和财产保全。
+> **Speaker note:** Explain that this slide summarizes the pre-suit evidence strategy.
 ```
 
-### 3. SmartArt / 关系图
+- Do not mix speaker notes into visible slide body content.
+- Preserve important instructions, timing notes, and oral explanation cues.
 
-提取核心关系，转为列表或表格：
+---
 
-**原稿：** 三个圆圈交叉的韦恩图，三个概念
+## 9. Splitting dense slides
+
+When splitting a dense slide:
+
+- Keep the original slide title for the first split slide.
+- For subsequent split slides, use the same title plus `(continued)`, `Part 2`, or a meaningful subtopic.
+- Do not remove content to fit one slide.
+- If the original slide combines text, table, and diagram, consider splitting into separate slides for text/table/diagram.
+
+Examples:
+
 ```markdown
-### 三类证据的交叉验证
+## Evidence Strategy
 
-- 公证购买记录：证明样品来源合法，建立产品同一性。
-- 司法鉴定报告：证明产品满足专利权利要求的参数范围。
-- 销售规模证据：证明侵权规模，支撑高额赔偿主张。
+...
 
-> 三类证据相互印证，共同构成完整的侵权证明链条。
+---
+
+## Evidence Strategy (continued)
+
+...
 ```
 
-### 4. 标注式幻灯片（图片 + 箭头 + 文字标注）
-
-提取所有文字标注，说明其指向内容：
+or:
 
 ```markdown
-### 产品X结构示意（文字说明）
+## Evidence Strategy: Sample Preservation
 
-- 核心模块：采用专利方法生产的关键组件，参数范围落入权利要求。
-- 外层封装：标准工业封装，非专利保护范围。
-- 接口设计：与委托人专利产品兼容，说明被告知晓委托人技术方案。
-```
+...
 
-### 5. 密集数据页（大量数字、统计）
+---
 
-保留最关键数据，次要数据转入 Speaker Note，避免一页塞满：
+## Evidence Strategy: Sales Data
 
-```markdown
-### 市场规模与损害赔偿基础数据
-
-- 公司A产品X在中国市场年销售额约 **3.2亿元**（2022年公开报告）。
-- 行业平均毛利率约 **38%**，可比上市公司数据支撑。
-- 专利技术贡献率估算约 **25%**，基于产品核心功能分析。
-- 侵权持续时间：**2019年至今**，约5年，可追溯至警告函发出日前。
-
-> **Speaker note:** 以上数据来源：公司A年报（2022）、行业协会报告（2023）、同类上市公司财报对比。完整数据附于证据清单附件3。
+...
 ```
 
 ---
 
-## 七、Speaker Notes（讲者备注）
+## 10. Output requirements
 
-原稿中的演讲者备注、备注栏文字、或你认为重要但不适合放在幻灯片上的补充说明，用以下格式写入：
+- Output only Markdown.
+- Do not add explanatory comments outside the Markdown.
+- Do not include file names unless they are part of image placeholders or source content.
+- Use `---` between slides.
+- Preserve the source presentation's language unless instructed otherwise.
+- If information is unreadable or uncertain, mark it as `[unclear]` rather than guessing.
 
-```markdown
-> **Speaker note:** 本页重点解释为何不能依赖举证责任倒置，需要提前预判产品是否属于新产品，并强调这是整个证明策略的关键前提。
-> 如果听众提问新产品的认定标准，可参考最高院2021年专利司法解释第17条。
-```
 
-- 必须以 `> **Speaker note:**` 开头（大小写均可）
-- 内容写入 PowerPoint **笔记栏（Notes Pane）**，不出现在幻灯片正文上
-- 多行备注：在第一行之后继续用 `> ` 开头的行
-- 每页最多一个 Speaker Note 块，放在页面内容末尾、`---` 之前
-
----
-
-## 八、每页容量上限
-
-| 项目 | 建议值 | 上限 |
-| --- | --- | --- |
-| 每页小标题数 | 2–3 个 | 4 个 |
-| 每页要点总数 | 5–8 条 | 10 条 |
-| 每条要点字数 | 30–50 字 | 60 字 |
-| 表格列数 | 2–4 列 | 5 列 |
-| 表格行数 | 3–6 行 | 8 行 |
-| 段落数 | 1–2 段 | 3 段 |
-
-**超出上限时，主动拆分为两张幻灯片。** 宁可多一页，也不要把一页塞满。
-
----
-
-## 九、常见问题判断
-
-| 原稿情况 | 处理方式 |
-| --- | --- |
-| 标题只有词语，没有完整句 | 保持原样，标题简洁即可 |
-| 要点只有2-3个词 | 扩展为完整句（约20-40字） |
-| 有大量动画分步呈现 | 合并为同一页，动画顺序变为列表顺序 |
-| 一页只有一张大图 | 用 `![说明](文件名.png)` 占位，下方加文字说明 |
-| 一页有10条以上要点 | 拆分为两页，按逻辑分组 |
-| 原稿有"谢谢"结束页 | 可保留为 `## 谢谢` 简单结束页，或省略 |
-| 原稿有目录页 | 转为要点列表，列出各章标题 |
-| 原稿中文英文混排 | 直接保留，转换器支持中英混排 |
-| 表格超过5列 | 考虑拆分为两个表，或合并相关列 |
-| SmartArt无法提取文字 | 根据视觉描述推断内容，写注释说明 |
-
----
-
-## 十、行内格式
-
-支持以下行内格式，用于强调关键词：
-
-```markdown
-这是 **重点词语** 的加粗用法。
-这是 *强调说明* 的斜体用法。
-这是 `技术术语` 的等宽代码用法（适合法条编号、参数名称）。
-这是 ~~已废除条款~~ 的删除线用法。
-```
-
-**使用原则：**
-- 加粗用于数字、关键结论、重要术语
-- 不要整句加粗，只加粗关键词（2-6字）
-- 中文内容中斜体不明显，慎用
-- 行内代码适合标识法条（`第66条`）、参数名（`pH值`）、文件名等
-
----
-
-## 十一、完整转换示例
-
-**原稿幻灯片（花哨版本）：**
-> 页面设计：蓝色渐变背景，左侧竖排大字"核心难点"，右侧三个彩色圆圈，每个圆圈里一句话，底部有动态图表
-
-圆圈1：方法专利看不到工艺  
-圆圈2：参数专利测不准确  
-圆圈3：高额赔偿算不出来  
-备注栏：这三个难点是整个案件策略的核心出发点，每个难点都有对应的证据工程方案。
-
-**转换结果：**
-
-```markdown
-# 本案三大核心难点演示
-张律师 | 2025
-
-## 本案三大核心难点
-
-### 方法专利：看不到工艺
-
-- 被告生产过程在其内部进行，原告无法直接接触生产设备和工艺文件。
-- 目标产品可能非新产品，举证责任倒置规则适用可能性较低。
-- 需通过环评、安评等行政备案文件和产品反向工程间接推断制造方法。
-
-### 参数专利：测得准不准
-
-- 侵权比对须判断产品是否满足权利要求中的特定参数范围。
-- 单方鉴定易遭被告质疑，需按"将来会被严格质证"的标准设计检测方案。
-- 检材来源、封存过程、检测方法和机构资质均为被告攻击重点。
-
-### 高额赔偿：算得出来并让法院采信
-
-- 仅证明侵权成立不足以获得高额赔偿，须另行构建赔偿证据体系。
-- 需收集销售规模、利润率、技术贡献率三类证据，从诉前阶段即开始。
-- 若被告拒绝提交账册，应请求法院适用证据妨碍规则作出不利推定。
-
-> **Speaker note:** 三个难点是整个案件策略的核心出发点，后续每一项工作安排都对应其中一个或多个难点。建议在介绍策略之前，先让听众充分理解这三个难点的深层含义。
-```
-
----
-
-## 十二、输出要求
-
-- **只输出 Markdown 文本**，不附加任何解释、说明或前言
-- 第一张幻灯片直接从标题开始（`#` 或 `##`）
-- 每张幻灯片之间用 `---` 分隔
-- 不输出文件名或任何非 Markdown 内容
-- 如遇到无法转换的内容（如无法识别的图表），用简短注释说明：`<!-- 此处原稿为XXX图，内容无法提取 -->`
-
----
-
-现在请处理我提供的以下演示文稿内容：
-
-[在此粘贴演示文稿的文字内容、截图描述或提取的文本]
+> 注意：项目模板的最后一页会自动作为结束页/感谢页追加。除非用户特别要求，不要在 Markdown 正文中额外生成 Thank you / 感谢页。

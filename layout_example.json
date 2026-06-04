@@ -1,5 +1,5 @@
 {
-  "_comment": "可选的布局配置文件。把此文件命名为 <模板名>.json 放在同目录，转换时自动读取。",
+  "_comment": "可选的布局配置文件。把此文件命名为 <模板名>.json 放在同目录，转换时自动读取。 font_main default: Source Han Sans SC (SIL OFL). Aliases: Noto Sans CJK SC, 思源黑体. Override with any installed font.",
   "slide_w": 11.42,
   "slide_h": 6.42,
   "title_l": 0.473,
@@ -15,7 +15,7 @@
   "slide_num_w": 2.665,
   "slide_num_h": 0.342,
   "copy_deco": true,
-  "font_main": "Microsoft YaHei",
+  "font_main": "Source Han Sans SC",
   "title_color": "00B0F0",
   "h3_color": "005A87"
 }

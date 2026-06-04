@@ -2,10 +2,14 @@
 # run.sh — Convert Markdown to PPTX
 #
 # Usage:
-#   ./run.sh input.md                          # use bundled template.pptx
-#   ./run.sh input.md custom_template.pptx     # auto-inspect + generate config
+#   ./run.sh input.md                              # output: input.pptx (same dir)
+#   ./run.sh input.md output.pptx                  # explicit output path
+#   ./run.sh input.md output.pptx template.pptx    # explicit template
 #
-# Output is always saved as input.pptx in the same directory as input.md
+# Positional arguments:
+#   $1  input .md file        (required)
+#   $2  output .pptx file     (optional; defaults to <input>.pptx in same dir)
+#   $3  template .pptx file   (optional; defaults to template.pptx next to this script)
 
 set -e
 
@@ -14,7 +18,7 @@ CALL_DIR="$(pwd)"
 
 # ── 参数检查 ─────────────────────────────────────────────────────────
 if [ -z "$1" ]; then
-  echo "用法：./run.sh input.md [template.pptx]"
+  echo "用法：./run.sh input.md [output.pptx] [template.pptx]"
   exit 1
 fi
 
@@ -31,31 +35,34 @@ if [ ! -f "$MD_FILE" ]; then
   exit 1
 fi
 
-# ── 确定输出路径（与输入同名同目录，扩展名改为 .pptx）──────────────
-MD_DIR="$(dirname "$MD_FILE")"
-MD_BASE="$(basename "$MD_FILE" .md)"
-OUTPUT="$MD_DIR/${MD_BASE}.pptx"
+# ── 确定输出路径 ─────────────────────────────────────────────────────
+if [ -n "$2" ]; then
+  OUTPUT="$(resolve "$2")"
+else
+  # Default: same directory as the .md file, same base name
+  MD_DIR="$(dirname "$MD_FILE")"
+  MD_BASE="$(basename "$MD_FILE" .md)"
+  OUTPUT="$MD_DIR/${MD_BASE}.pptx"
+fi
 
 # ── 确定模板路径 ─────────────────────────────────────────────────────
 USING_CUSTOM_TEMPLATE=false
 
-if [ -n "$2" ]; then
-  # 用户指定了模板
-  TEMPLATE="$(resolve "$2")"
+if [ -n "$3" ]; then
+  TEMPLATE="$(resolve "$3")"
   if [ ! -f "$TEMPLATE" ]; then
     echo "❌ 找不到模板文件：$TEMPLATE"
     exit 1
   fi
   USING_CUSTOM_TEMPLATE=true
 else
-  # 自动查找 template.pptx（先在脚本目录，再在调用目录）
   if [ -f "$SCRIPT_DIR/template.pptx" ]; then
     TEMPLATE="$SCRIPT_DIR/template.pptx"
   elif [ -f "$CALL_DIR/template.pptx" ]; then
     TEMPLATE="$CALL_DIR/template.pptx"
   else
     echo "❌ 未找到 template.pptx。"
-    echo "   请将模板放在 $SCRIPT_DIR/ 或当前目录，或通过第二个参数指定。"
+    echo "   请将模板放在 $SCRIPT_DIR/ 或当前目录，或通过第三个参数指定。"
     exit 1
   fi
 fi
