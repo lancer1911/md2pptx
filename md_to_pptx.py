@@ -1203,8 +1203,44 @@ def _sa_add_connector(slide, x1, y1, x2, y2, color):
     line.line.fill.background()
 
 
+
+def _smartart_items_to_balanced_rows(items: list, limit: int) -> list:
+    """Split plain SmartArt items into balanced row chunks.
+
+    This is used for same-slide stacked rendering.  It avoids a final row with
+    only one item when possible:
+      limit=5, n=6  -> 4 + 2
+      limit=5, n=11 -> 5 + 4 + 2
+    """
+    if not items or limit <= 0 or len(items) <= limit:
+        return [items]
+
+    sizes = _balanced_chunk_sizes(len(items), limit) if '_balanced_chunk_sizes' in globals() else None
+    if not sizes:
+        full, rem = divmod(len(items), limit)
+        if rem == 0:
+            sizes = [limit] * full
+        elif rem == 1 and full >= 1:
+            sizes = [limit] * (full - 1) + [limit - 1, 2] if full > 1 else [len(items) - 2, 2]
+        else:
+            sizes = [limit] * full + [rem]
+
+    rows = []
+    pos = 0
+    for sz in sizes:
+        rows.append(items[pos:pos + sz])
+        pos += sz
+    return rows
+
+
 def _render_smartart_process(slide, sa, left, top, width, height, lc):
-    """Chevron / numbered-card process diagram — auto-sizes to item count."""
+    """Chevron / numbered-card process diagram — auto-sizes to item count.
+
+    If a chevron process has too many nodes, render it as multiple stacked rows
+    on the same slide instead of splitting into multiple PPT slides.  Shorter
+    rows use the same unit width as the widest row and are centered, so a row
+    with only two items does not stretch into two oversized arrows.
+    """
     from pptx.util import Pt
     items = [it for it in sa["items"] if it["level"] == 0]
     if not items:
@@ -1214,56 +1250,74 @@ def _render_smartart_process(slide, sa, left, top, width, height, lc):
     n     = len(items)
 
     if style == "chevron":
-        # ── True pentagon/chevron via PENTAGON shape ──────────────────
-        # Shape height: 55–65% of available height, vertically centred
-        shape_h   = min(height * 0.60, Inches(1.4))
-        shape_top = top + (height - shape_h) / 2
+        ROW_LIMIT = 5
+        rows = _smartart_items_to_balanced_rows(items, ROW_LIMIT)
+        row_count = len(rows)
+        max_cols = max(len(r) for r in rows)
 
-        # Each chevron overlaps the next one by `overlap` to form a chain
-        overlap   = int(Inches(0.22))
-        total_w   = width
-        step_w    = (total_w + (n - 1) * overlap) / n   # gross width per tile
+        # Row layout: stack inside available SmartArt height.
+        row_gap = int(Inches(0.12)) if row_count > 1 else 0
+        total_gap = row_gap * (row_count - 1)
+        row_h = (height - total_gap) / row_count
+        row_h = max(row_h, Inches(0.72))
 
-        for i, item in enumerate(items):
-            color = pal[i % len(pal)]
-            x     = left + i * (step_w - overlap)
-            # Last tile is a plain rectangle cap; others get the arrow notch via
-            # PENTAGON (points right).  We fake it with CHEVRON which gives a
-            # left-notch: for shape i>0 use CHEVRON, for i==0+last use different.
-            if n == 1:
-                sh_type = MSO_SHAPE.ROUNDED_RECTANGLE
-            elif i == 0:
-                sh_type = MSO_SHAPE.PENTAGON
-            elif i == n - 1:
-                sh_type = MSO_SHAPE.CHEVRON
-            else:
-                sh_type = MSO_SHAPE.CHEVRON
+        # Unit width is based on the widest row and reused for all rows.
+        overlap = int(Inches(0.22))
+        step_w = (width + (max_cols - 1) * overlap) / max_cols
 
-            box = slide.shapes.add_shape(
-                sh_type, int(x), int(shape_top), int(step_w), int(shape_h)
-            )
-            box.fill.solid()
-            box.fill.fore_color.rgb = color
-            box.line.fill.background()
+        for r_idx, row_items in enumerate(rows):
+            row_top = top + r_idx * (row_h + row_gap)
+            shape_h = min(row_h * 0.72, Inches(1.12))
+            shape_top = row_top + (row_h - shape_h) / 2
 
-            # Text: centre in the shape body (skip the arrow notch area ~18%)
-            body_w = step_w * (0.78 if i < n - 1 else 0.88)
-            body_x = x + (step_w - body_w) * 0.5 + (overlap * 0.3 if i > 0 else 0)
-            sz = max(9, min(13, int(100 / max(n, 1))))
-            _sa_text_tf(slide, body_x, shape_top, body_w, shape_h,
-                        item["text"], lc.font_main, sz_pt=sz,
-                        bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+            k = len(row_items)
+            actual_w = k * step_w - (k - 1) * overlap
+            x0 = left + (width - actual_w) / 2
 
-        return int(shape_top + shape_h)
+            for i, item in enumerate(row_items):
+                global_i = sum(len(r) for r in rows[:r_idx]) + i
+                color = pal[global_i % len(pal)]
+                x = x0 + i * (step_w - overlap)
+
+                if k == 1:
+                    sh_type = MSO_SHAPE.ROUNDED_RECTANGLE
+                elif i == 0:
+                    sh_type = MSO_SHAPE.PENTAGON
+                else:
+                    sh_type = MSO_SHAPE.CHEVRON
+
+                box = slide.shapes.add_shape(
+                    sh_type, int(x), int(shape_top), int(step_w), int(shape_h)
+                )
+                box.fill.solid()
+                box.fill.fore_color.rgb = color
+                box.line.fill.background()
+
+                # Text: centre in the shape body (skip the arrow notch area).
+                body_w = step_w * (0.78 if i < k - 1 else 0.88)
+                body_x = x + (step_w - body_w) * 0.5 + (overlap * 0.3 if i > 0 else 0)
+
+                # More rows mean less vertical space, so reduce font slightly.
+                sz = max(7, min(12, int(92 / max(max_cols, 1)) - (row_count - 1)))
+                _sa_text_tf(slide, body_x, shape_top, body_w, shape_h,
+                            item["text"], lc.font_main, sz_pt=sz,
+                            bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+
+        return int(top + height)
 
     else:  # numbered card style
-        # ── Vertically centred list of number-bubble + card rows ──────
+        # Existing vertical numbered list.  It already stacks top-to-bottom; if
+        # there are too many rows, shrink conservatively rather than splitting.
         row_h  = min(Inches(0.68), height / n)
         gap    = int(Inches(0.10))
         total  = n * row_h + (n - 1) * gap
-        y0     = top + (height - total) / 2   # vertically centred
+        if total > height:
+            gap = int(Inches(0.05))
+            row_h = max(Inches(0.42), (height - (n - 1) * gap) / n)
+            total = n * row_h + (n - 1) * gap
+        y0     = top + max(0, (height - total) / 2)
 
-        bub_d  = int(row_h * 0.82)            # bubble diameter
+        bub_d  = int(row_h * 0.82)
         pad    = int(Inches(0.12))
 
         for i, item in enumerate(items):
@@ -1271,17 +1325,15 @@ def _render_smartart_process(slide, sa, left, top, width, height, lc):
             y      = y0 + i * (row_h + gap)
             by     = y + (row_h - bub_d) / 2
 
-            # Number bubble
             bub = slide.shapes.add_shape(
                 MSO_SHAPE.OVAL, int(left), int(by), bub_d, bub_d
             )
             bub.fill.solid(); bub.fill.fore_color.rgb = color
             bub.line.fill.background()
             _sa_text_tf(slide, left, by, bub_d, bub_d,
-                        str(i + 1), lc.font_main, sz_pt=11,
+                        str(i + 1), lc.font_main, sz_pt=max(8, min(11, int(row_h / 914400 * 14))),
                         bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
 
-            # Card: use a very light tint of the colour
             card_x = left + bub_d + pad
             card_w = width - bub_d - pad
             card   = slide.shapes.add_shape(
@@ -1294,14 +1346,12 @@ def _render_smartart_process(slide, sa, left, top, width, height, lc):
             try: card.adjustments[0] = 0.05
             except Exception: pass
 
-            # Text vertically centred inside card
-            sz = max(9, min(12, int(110 / max(n, 1))))
+            sz = max(8, min(12, int(105 / max(n, 1))))
             _sa_text_tf(slide, card_x + pad, y, card_w - 2 * pad, row_h,
                         item["text"], lc.font_main, sz_pt=sz,
                         bold=False, color=C_BODY, align_center=False)
 
         return int(y0 + total)
-
 
 def _render_smartart_cycle(slide, sa, left, top, width, height, lc):
     """Circular cycle diagram — elliptical orbit, equal-sized nodes."""
@@ -1606,100 +1656,122 @@ def _render_smartart_pyramid(slide, sa, left, top, width, height, lc):
 
 
 def _render_smartart_timeline(slide, sa, left, top, width, height, lc):
-    """Horizontal timeline — adaptive label/card layout, fully centred."""
+    """Horizontal timeline — adaptive label/card layout, with stacked rows.
+
+    If the timeline has too many nodes, render multiple timeline rows on the
+    same slide.  Shorter rows reuse the same slot/card width as the widest row.
+    """
     items = [it for it in sa["items"] if it["level"] == 0]
     if not items:
         return top + height
     pal = _sa_palette(sa.get("theme", ""))
-    n   = len(items)
 
-    # ── Layout constants ──────────────────────────────────────────────
-    has_desc = any(" | " in it["text"] for it in items)
+    ROW_LIMIT = 6
+    rows = _smartart_items_to_balanced_rows(items, ROW_LIMIT)
+    row_count = len(rows)
+    max_cols = max(len(r) for r in rows)
 
-    label_h = int(Inches(0.45))          # area above the line for date labels
-    dot_d   = int(Inches(0.26))          # milestone dot diameter
-    line_h  = int(Inches(0.05))          # spine thickness
-    card_h  = int(Inches(1.0)) if has_desc else 0
-    gap     = int(Inches(0.12))
+    row_gap = int(Inches(0.10)) if row_count > 1 else 0
+    row_h = (height - row_gap * (row_count - 1)) / row_count
+    row_h = max(row_h, Inches(0.88))
 
-    # Total used height; centre vertically
-    used_h  = label_h + gap + dot_d + (gap + card_h if has_desc else 0)
-    y0      = top + (height - used_h) / 2
+    def _split_item_text(text):
+        if "|" in text:
+            a, b = text.split("|", 1)
+            return a.strip(), b.strip()
+        if "：" in text:
+            a, b = text.split("：", 1)
+            return a.strip(), b.strip()
+        return "", text.strip()
 
-    line_y  = y0 + label_h + gap               # spine top
-    dot_y   = line_y + (line_h - dot_d) / 2    # dot top (centred on spine)
-    card_y  = line_y + line_h + gap            # card top
+    def _render_row(row_items, r_idx, row_top):
+        k = len(row_items)
 
-    step    = width / n
-    WHITE   = RGBColor(0xFF, 0xFF, 0xFF)
-    sz_lbl  = max(8, min(11, int(80 / n)))
-    sz_desc = max(7, min(10, int(75 / n)))
+        # Keep slot/card sizes consistent with the widest row, then center the
+        # shorter row in the available width.
+        slot_w = width / max_cols
+        actual_w = slot_w * k
+        x0 = left + (width - actual_w) / 2
 
-    # ── Spine line ────────────────────────────────────────────────────
-    spine = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        int(left), int(line_y), int(width), int(line_h)
-    )
-    spine.fill.solid(); spine.fill.fore_color.rgb = pal[1]
-    spine.line.fill.background()
+        label_h = min(int(Inches(0.36)), int(row_h * 0.23))
+        gap = int(Inches(0.06))
+        line_h = max(int(Inches(0.035)), int(row_h * 0.025))
+        dot_d = max(int(Inches(0.20)), min(int(Inches(0.28)), int(row_h * 0.16)))
 
-    for i, item in enumerate(items):
-        xc    = left + (i + 0.5) * step
-        color = pal[i % max(len(pal) - 1, 1)]
+        line_y = row_top + label_h + gap
+        card_y = line_y + line_h + gap
+        card_h = max(int(Inches(0.42)), int(row_top + row_h - card_y))
+        card_w = min(int(slot_w * 0.82), int(Inches(1.25)))
 
-        # ── Milestone dot ─────────────────────────────────────────────
-        dot = slide.shapes.add_shape(
-            MSO_SHAPE.OVAL,
-            int(xc - dot_d / 2), int(dot_y),
-            int(dot_d), int(dot_d)
+        first_cx = x0 + slot_w / 2
+        last_cx = x0 + (k - 0.5) * slot_w
+        spine_x = first_cx
+        spine_w = max(last_cx - first_cx, slot_w * 0.25)
+
+        spine = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, int(spine_x), int(line_y), int(spine_w), int(line_h)
         )
-        dot.fill.solid(); dot.fill.fore_color.rgb = color
-        dot.line.fill.background()
+        spine.fill.solid(); spine.fill.fore_color.rgb = pal[1]
+        spine.line.fill.background()
 
-        # ── Parse label | description ─────────────────────────────────
-        if " | " in item["text"]:
-            label, desc = item["text"].split(" | ", 1)
-        else:
-            label, desc = item["text"], ""
-        label = label.strip(); desc = desc.strip()
+        for i, item in enumerate(row_items):
+            global_i = sum(len(r) for r in rows[:r_idx]) + i
+            date, desc = _split_item_text(item["text"])
+            color = pal[global_i % len(pal)]
 
-        # ── Label above spine ─────────────────────────────────────────
-        lw = step * 0.88
-        _sa_text_tf(slide, xc - lw / 2, y0, lw, label_h,
-                    label, lc.font_main, sz_pt=sz_lbl,
-                    bold=True, color=color, align_center=True)
+            cx = x0 + (i + 0.5) * slot_w
 
-        # ── Vertical stem from dot to card ───────────────────────────
-        if has_desc:
-            stem_w = int(Inches(0.018))
+            # Date label
+            if date:
+                _sa_text_tf(slide,
+                            cx - slot_w * 0.48, row_top,
+                            slot_w * 0.96, label_h,
+                            date, lc.font_main,
+                            sz_pt=max(6, min(9, int(58 / max(max_cols, 1)))),
+                            bold=True, color=color)
+
+            # Dot
+            dot = slide.shapes.add_shape(
+                MSO_SHAPE.OVAL,
+                int(cx - dot_d / 2), int(line_y + line_h / 2 - dot_d / 2),
+                int(dot_d), int(dot_d)
+            )
+            dot.fill.solid(); dot.fill.fore_color.rgb = color
+            dot.line.fill.background()
+
+            # Stem
+            stem_w = max(1, int(Inches(0.014)))
             stem = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                int(xc - stem_w / 2), int(dot_y + dot_d),
-                stem_w, int(card_y - dot_y - dot_d)
+                int(cx - stem_w / 2), int(line_y + line_h),
+                int(stem_w), int(max(card_y - (line_y + line_h), 1))
             )
-            stem.fill.solid(); stem.fill.fore_color.rgb = pal[2]
+            stem.fill.solid(); stem.fill.fore_color.rgb = color
             stem.line.fill.background()
 
-        # ── Description card below spine ─────────────────────────────
-        if has_desc:
-            cw   = step * 0.84
+            # Card
             card = slide.shapes.add_shape(
                 MSO_SHAPE.ROUNDED_RECTANGLE,
-                int(xc - cw / 2), int(card_y),
-                int(cw), int(card_h)
+                int(cx - card_w / 2), int(card_y), int(card_w), int(card_h)
             )
-            card.fill.solid(); card.fill.fore_color.rgb = pal[min(i + 2, len(pal) - 1)]
+            card.fill.solid()
+            card.fill.fore_color.rgb = pal[min(global_i + 2, len(pal) - 1)]
             card.line.fill.background()
             try: card.adjustments[0] = 0.08
             except Exception: pass
 
-            if desc:
-                _sa_text_tf(slide, xc - cw / 2, card_y, cw, card_h,
-                            desc, lc.font_main, sz_pt=sz_desc,
-                            bold=False, color=C_BODY, align_center=True)
+            _sa_text_tf(slide,
+                        cx - card_w / 2 + Inches(0.04), card_y + Inches(0.03),
+                        card_w - Inches(0.08), card_h - Inches(0.06),
+                        desc, lc.font_main,
+                        sz_pt=max(6, min(9, int(70 / max(max_cols, 1)))),
+                        bold=False, color=C_BODY)
 
-    return int(y0 + used_h)
+    for r_idx, row in enumerate(rows):
+        row_top = top + r_idx * (row_h + row_gap)
+        _render_row(row, r_idx, row_top)
 
+    return int(top + height)
 
 def _render_smartart(slide, sa: dict, left, top, width, height, lc) -> int:
     """Dispatch to the correct SmartArt renderer. Returns bottom y."""
@@ -1972,6 +2044,254 @@ def _deduplicate_pptx_zip(pptx_path: str):
     os.replace(tmp, src)
 
 
+
+def _parse_smartart_fence_from_lines(body_lines: list):
+    """Return a list of SmartArt fence blocks found in body_lines.
+
+    Each block is a dict with start/end indices, attrs and parsed item lines.
+    This is intentionally line-based so it can split the original Markdown
+    slide while preserving surrounding text, tables, quotes and code blocks.
+    """
+    blocks = []
+    i = 0
+    while i < len(body_lines):
+        raw = body_lines[i]
+        line = raw.strip()
+        if not line.startswith(":::smartart"):
+            i += 1
+            continue
+
+        attrs = {}
+        for m in re.finditer(r'(\w+)\s*=\s*"([^"]*)"', line):
+            attrs[m.group(1)] = m.group(2)
+
+        items = []
+        j = i + 1
+        while j < len(body_lines):
+            close_line = body_lines[j].strip()
+            if close_line == ":::":
+                break
+            bm = re.match(r'^( *)[-*+] (.+)$', body_lines[j])
+            if bm:
+                items.append({
+                    "raw": body_lines[j],
+                    "indent": len(bm.group(1)) // 2,
+                    "text": bm.group(2).strip(),
+                })
+            j += 1
+
+        if j < len(body_lines) and body_lines[j].strip() == ":::":
+            blocks.append({
+                "start": i,
+                "end": j,
+                "open": body_lines[i],
+                "attrs": attrs,
+                "items": items,
+            })
+            i = j + 1
+        else:
+            i += 1
+    return blocks
+
+
+def _smartart_split_limit(sa_type: str, style: str) -> int | None:
+    """Return maximum top-level items per slide for auto-splitting."""
+    sa_type = (sa_type or "process").lower()
+    style = (style or "").lower()
+
+    # Chevron/process shapes become unreadable when each item is too narrow.
+    if sa_type == "process":
+        return 5 if style == "numbered" else 5
+
+    # Timelines need space for both dates and cards. Six is a practical limit
+    # for 16:9 slides with this template.
+    if sa_type == "timeline":
+        return 6
+
+    # Cycles and pyramids are usable only up to a moderate number of nodes.
+    if sa_type == "cycle":
+        return 6
+    if sa_type == "pyramid":
+        return 5
+
+    # Matrix has fixed semantics; hierarchy requires preserving parent-child
+    # structure and is not safely split automatically.
+    return None
+
+
+def _balanced_chunk_sizes(n_items: int, limit: int) -> list:
+    """Return balanced chunk sizes, avoiding a final singleton when possible.
+
+    Examples with limit=5:
+      6  -> 4 + 2
+      7  -> 5 + 2
+      10 -> 5 + 5
+      11 -> 5 + 4 + 2
+      16 -> 5 + 5 + 4 + 2
+
+    The rule is intentionally simple and predictable: use max-size chunks, but
+    when the remainder is 1, borrow one item from the preceding chunk so the
+    final chunk becomes 2.  This avoids visually awkward one-node continuation
+    slides.
+    """
+    if n_items <= 0:
+        return []
+    if limit <= 1 or n_items <= limit:
+        return [n_items]
+
+    full, rem = divmod(n_items, limit)
+
+    if rem == 0:
+        return [limit] * full
+
+    if rem == 1:
+        if full == 1:
+            # e.g. 6 with limit 5 -> 4 + 2
+            return [n_items - 2, 2]
+        # e.g. 11 -> 5 + 4 + 2; 16 -> 5 + 5 + 4 + 2
+        return [limit] * (full - 1) + [limit - 1, 2]
+
+    return [limit] * full + [rem]
+
+
+def _chunk_smartart_items(items: list, limit: int) -> list:
+    """Split SmartArt item lines without breaking nested children.
+
+    The splitter counts only top-level items. Any indented child lines following
+    a top-level item stay with that item.
+
+    It also avoids creating a final chunk containing only one top-level node,
+    because a continuation slide with a single chevron/timeline card looks
+    visually unbalanced.
+    """
+    if not items or limit <= 0:
+        return [items]
+
+    # First group each top-level item together with its child lines.
+    top_groups = []
+    current = []
+
+    for it in items:
+        is_top = it.get("indent", 0) == 0
+        if is_top and current:
+            top_groups.append(current)
+            current = []
+        current.append(it)
+
+    if current:
+        top_groups.append(current)
+
+    if len(top_groups) <= limit:
+        return [items]
+
+    sizes = _balanced_chunk_sizes(len(top_groups), limit)
+    chunks = []
+    pos = 0
+    for size in sizes:
+        selected_groups = top_groups[pos:pos + size]
+        merged = []
+        for g in selected_groups:
+            merged.extend(g)
+        chunks.append(merged)
+        pos += size
+
+    return chunks
+
+
+def _renumber_timeline_items(items: list) -> list:
+    """Return raw Markdown lines for a SmartArt item chunk."""
+    return [it["raw"] for it in items]
+
+
+def _autosplit_smartart_slides(slides_data: list, lc: LayoutConfig) -> list:
+    """Automatically split slides whose SmartArt has too many items.
+
+    This is deliberately conservative: it only splits slides with exactly one
+    SmartArt fence and only for SmartArt types where simple item chunking is
+    safe.  It prevents overly narrow chevrons and crowded timelines while
+    leaving ordinary text slides unchanged.
+    """
+    out = []
+
+    for sd in slides_data:
+        body_lines = sd.get("body_lines", [])
+        blocks = _parse_smartart_fence_from_lines(body_lines)
+
+        if len(blocks) != 1:
+            out.append(sd)
+            continue
+
+        block = blocks[0]
+        attrs = block["attrs"]
+        sa_type = attrs.get("type", "process")
+        style = attrs.get("style", "")
+        limit = _smartart_split_limit(sa_type, style)
+
+        if not limit:
+            out.append(sd)
+            continue
+
+        top_items = [it for it in block["items"] if it.get("indent", 0) == 0]
+        if len(top_items) <= limit:
+            out.append(sd)
+            continue
+
+        chunks = _chunk_smartart_items(block["items"], limit)
+        if len(chunks) <= 1:
+            out.append(sd)
+            continue
+
+        prefix = body_lines[:block["start"]]
+        suffix = body_lines[block["end"] + 1:]
+
+        # To avoid repeating a long explanatory paragraph on every split page,
+        # keep text before the SmartArt only on the first part.  For later parts,
+        # preserve only a short continuation note.
+        continuation_note = ""
+        if sa_type.lower() == "timeline":
+            continuation_note = "（续）以下为后续时间节点。"
+        elif sa_type.lower() == "process":
+            continuation_note = "（续）以下为后续流程步骤。"
+        elif sa_type.lower() == "cycle":
+            continuation_note = "（续）以下为后续循环节点。"
+        elif sa_type.lower() == "pyramid":
+            continuation_note = "（续）以下为后续层级。"
+
+        total = len(chunks)
+        for idx, chunk in enumerate(chunks, 1):
+            new_sd = dict(sd)
+            new_sd["title"] = f"{sd['title']}（{idx}/{total}）"
+            lines = []
+
+            if idx == 1:
+                lines.extend(prefix)
+            elif continuation_note:
+                lines.extend([continuation_note, ""])
+
+            lines.append(block["open"])
+            lines.extend(_renumber_timeline_items(chunk))
+            lines.append(":::")
+
+            # Keep suffix only on the final chunk. This preserves any note or
+            # concluding bullets written after the SmartArt without repeating
+            # them on intermediate pages.
+            if idx == total and suffix:
+                lines.extend([""])
+                lines.extend(suffix)
+
+            new_sd["body_lines"] = lines
+            # Speaker notes should usually stay on the first slide only.
+            if idx != 1:
+                new_sd["note"] = ""
+            out.append(new_sd)
+
+        print(f"  Auto-split SmartArt slide '{sd['title']}' into {total} slides "
+              f"({len(top_items)} items, limit {limit}).")
+
+    return out
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main conversion
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2193,6 +2513,254 @@ def _deduplicate_pptx_zip(pptx_path: str):
     os.replace(tmp, src)
 
 
+
+def _parse_smartart_fence_from_lines(body_lines: list):
+    """Return a list of SmartArt fence blocks found in body_lines.
+
+    Each block is a dict with start/end indices, attrs and parsed item lines.
+    This is intentionally line-based so it can split the original Markdown
+    slide while preserving surrounding text, tables, quotes and code blocks.
+    """
+    blocks = []
+    i = 0
+    while i < len(body_lines):
+        raw = body_lines[i]
+        line = raw.strip()
+        if not line.startswith(":::smartart"):
+            i += 1
+            continue
+
+        attrs = {}
+        for m in re.finditer(r'(\w+)\s*=\s*"([^"]*)"', line):
+            attrs[m.group(1)] = m.group(2)
+
+        items = []
+        j = i + 1
+        while j < len(body_lines):
+            close_line = body_lines[j].strip()
+            if close_line == ":::":
+                break
+            bm = re.match(r'^( *)[-*+] (.+)$', body_lines[j])
+            if bm:
+                items.append({
+                    "raw": body_lines[j],
+                    "indent": len(bm.group(1)) // 2,
+                    "text": bm.group(2).strip(),
+                })
+            j += 1
+
+        if j < len(body_lines) and body_lines[j].strip() == ":::":
+            blocks.append({
+                "start": i,
+                "end": j,
+                "open": body_lines[i],
+                "attrs": attrs,
+                "items": items,
+            })
+            i = j + 1
+        else:
+            i += 1
+    return blocks
+
+
+def _smartart_split_limit(sa_type: str, style: str) -> int | None:
+    """Return maximum top-level items per slide for auto-splitting."""
+    sa_type = (sa_type or "process").lower()
+    style = (style or "").lower()
+
+    # Chevron/process shapes become unreadable when each item is too narrow.
+    if sa_type == "process":
+        return 5 if style == "numbered" else 5
+
+    # Timelines need space for both dates and cards. Six is a practical limit
+    # for 16:9 slides with this template.
+    if sa_type == "timeline":
+        return 6
+
+    # Cycles and pyramids are usable only up to a moderate number of nodes.
+    if sa_type == "cycle":
+        return 6
+    if sa_type == "pyramid":
+        return 5
+
+    # Matrix has fixed semantics; hierarchy requires preserving parent-child
+    # structure and is not safely split automatically.
+    return None
+
+
+def _balanced_chunk_sizes(n_items: int, limit: int) -> list:
+    """Return balanced chunk sizes, avoiding a final singleton when possible.
+
+    Examples with limit=5:
+      6  -> 4 + 2
+      7  -> 5 + 2
+      10 -> 5 + 5
+      11 -> 5 + 4 + 2
+      16 -> 5 + 5 + 4 + 2
+
+    The rule is intentionally simple and predictable: use max-size chunks, but
+    when the remainder is 1, borrow one item from the preceding chunk so the
+    final chunk becomes 2.  This avoids visually awkward one-node continuation
+    slides.
+    """
+    if n_items <= 0:
+        return []
+    if limit <= 1 or n_items <= limit:
+        return [n_items]
+
+    full, rem = divmod(n_items, limit)
+
+    if rem == 0:
+        return [limit] * full
+
+    if rem == 1:
+        if full == 1:
+            # e.g. 6 with limit 5 -> 4 + 2
+            return [n_items - 2, 2]
+        # e.g. 11 -> 5 + 4 + 2; 16 -> 5 + 5 + 4 + 2
+        return [limit] * (full - 1) + [limit - 1, 2]
+
+    return [limit] * full + [rem]
+
+
+def _chunk_smartart_items(items: list, limit: int) -> list:
+    """Split SmartArt item lines without breaking nested children.
+
+    The splitter counts only top-level items. Any indented child lines following
+    a top-level item stay with that item.
+
+    It also avoids creating a final chunk containing only one top-level node,
+    because a continuation slide with a single chevron/timeline card looks
+    visually unbalanced.
+    """
+    if not items or limit <= 0:
+        return [items]
+
+    # First group each top-level item together with its child lines.
+    top_groups = []
+    current = []
+
+    for it in items:
+        is_top = it.get("indent", 0) == 0
+        if is_top and current:
+            top_groups.append(current)
+            current = []
+        current.append(it)
+
+    if current:
+        top_groups.append(current)
+
+    if len(top_groups) <= limit:
+        return [items]
+
+    sizes = _balanced_chunk_sizes(len(top_groups), limit)
+    chunks = []
+    pos = 0
+    for size in sizes:
+        selected_groups = top_groups[pos:pos + size]
+        merged = []
+        for g in selected_groups:
+            merged.extend(g)
+        chunks.append(merged)
+        pos += size
+
+    return chunks
+
+
+def _renumber_timeline_items(items: list) -> list:
+    """Return raw Markdown lines for a SmartArt item chunk."""
+    return [it["raw"] for it in items]
+
+
+def _autosplit_smartart_slides(slides_data: list, lc: LayoutConfig) -> list:
+    """Automatically split slides whose SmartArt has too many items.
+
+    This is deliberately conservative: it only splits slides with exactly one
+    SmartArt fence and only for SmartArt types where simple item chunking is
+    safe.  It prevents overly narrow chevrons and crowded timelines while
+    leaving ordinary text slides unchanged.
+    """
+    out = []
+
+    for sd in slides_data:
+        body_lines = sd.get("body_lines", [])
+        blocks = _parse_smartart_fence_from_lines(body_lines)
+
+        if len(blocks) != 1:
+            out.append(sd)
+            continue
+
+        block = blocks[0]
+        attrs = block["attrs"]
+        sa_type = attrs.get("type", "process")
+        style = attrs.get("style", "")
+        limit = _smartart_split_limit(sa_type, style)
+
+        if not limit:
+            out.append(sd)
+            continue
+
+        top_items = [it for it in block["items"] if it.get("indent", 0) == 0]
+        if len(top_items) <= limit:
+            out.append(sd)
+            continue
+
+        chunks = _chunk_smartart_items(block["items"], limit)
+        if len(chunks) <= 1:
+            out.append(sd)
+            continue
+
+        prefix = body_lines[:block["start"]]
+        suffix = body_lines[block["end"] + 1:]
+
+        # To avoid repeating a long explanatory paragraph on every split page,
+        # keep text before the SmartArt only on the first part.  For later parts,
+        # preserve only a short continuation note.
+        continuation_note = ""
+        if sa_type.lower() == "timeline":
+            continuation_note = "（续）以下为后续时间节点。"
+        elif sa_type.lower() == "process":
+            continuation_note = "（续）以下为后续流程步骤。"
+        elif sa_type.lower() == "cycle":
+            continuation_note = "（续）以下为后续循环节点。"
+        elif sa_type.lower() == "pyramid":
+            continuation_note = "（续）以下为后续层级。"
+
+        total = len(chunks)
+        for idx, chunk in enumerate(chunks, 1):
+            new_sd = dict(sd)
+            new_sd["title"] = f"{sd['title']}（{idx}/{total}）"
+            lines = []
+
+            if idx == 1:
+                lines.extend(prefix)
+            elif continuation_note:
+                lines.extend([continuation_note, ""])
+
+            lines.append(block["open"])
+            lines.extend(_renumber_timeline_items(chunk))
+            lines.append(":::")
+
+            # Keep suffix only on the final chunk. This preserves any note or
+            # concluding bullets written after the SmartArt without repeating
+            # them on intermediate pages.
+            if idx == total and suffix:
+                lines.extend([""])
+                lines.extend(suffix)
+
+            new_sd["body_lines"] = lines
+            # Speaker notes should usually stay on the first slide only.
+            if idx != 1:
+                new_sd["note"] = ""
+            out.append(new_sd)
+
+        print(f"  Auto-split SmartArt slide '{sd['title']}' into {total} slides "
+              f"({len(top_items)} items, limit {limit}).")
+
+    return out
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main conversion
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2215,6 +2783,9 @@ def convert(md_path: str, template_path: str, output_path: str,
         print("ERROR: No slides found.", file=sys.stderr)
         sys.exit(1)
 
+    # SmartArt overflow is now handled inside the SmartArt renderers by stacking
+    # multiple rows on the same slide.  We no longer split one Markdown slide
+    # into multiple PPT slides merely because a SmartArt has many items.
     print(f"Parsed {len(slides_data)} slide(s).")
 
     # Build output from a blank presentation (the original behaviour).
