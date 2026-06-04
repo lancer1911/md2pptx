@@ -326,6 +326,18 @@ run.bat input.md output.pptx template.pptx
 | `requirements.txt` | ✅ | ✅ | Python 依赖清单 |
 
 
+
+### 自定义模板 JSON 识别说明
+
+`inspect_template.py` 会按照项目模板约定识别：
+
+- 第 1 页：封面样式参考；
+- 第 2 页：正文页样式参考；
+- 最后一页：感谢页 / 结束页，不参与正文区域检测。
+
+如果自动生成的 `.json` 中 `content_l/content_t/content_w/content_h` 明显偏移，正文就会整体偏右或偏下。  
+此时应以模板第 2 页的正文框为准手动修正 JSON，或重新运行新版 `inspect_template.py`。
+
 ## 模板约定：自动追加最后一页
 
 当前版本会把 **模板文件的最后一页** 作为固定结束页，并在每次生成 PPTX 时自动追加到演示文稿末尾。正文页仍然使用原来的空白页生成逻辑，不会继承模板中的标题/正文占位符。
