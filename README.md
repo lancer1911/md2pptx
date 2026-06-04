@@ -544,4 +544,4 @@ Markdown 中不需要单独写感谢页。
 
 ## License
 
-请根据项目实际情况补充 License。
+MIT
